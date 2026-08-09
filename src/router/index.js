@@ -1,4 +1,5 @@
 import { fetchWithCache, getCacheMetadata } from "../cache/index.js";
+import { InvalidObjectPathError } from "../errors.js";
 import { isConfigError, isEnabledByDefault, isUpstreamFetchError, json, rebuildResponse } from "../utils.js";
 import { createStorageClient } from "../providers/index.js";
 import { inspectOutboundXml } from "./xml.js";
@@ -77,7 +78,9 @@ async function responseMiddleware(routerContext) {
       ? await getCacheMetadata(normalizedRequest, routerContext.request, getStorageTarget)
       : await fetchWithCache(normalizedRequest, ctx, env, getStorageTarget);
 
-    const inspectedResponse = await inspectOutboundXml(response);
+    const inspectedResponse = await inspectOutboundXml(response, {
+      allowRanges: isEnabledByDefault(env.ALLOW_XML_RANGES),
+    });
     if (!inspectedResponse) {
       routerContext.response = json({ error: "Forbidden" }, 403);
       return;
@@ -87,6 +90,11 @@ async function responseMiddleware(routerContext) {
       ? withInlineDisposition(inspectedResponse)
       : inspectedResponse;
   } catch (error) {
+    if (error instanceof InvalidObjectPathError) {
+      routerContext.response = json({ error: "Invalid object path" }, 400);
+      return;
+    }
+
     if (isConfigError(error)) {
       routerContext.response = json({ error: error.message }, 500);
       return;

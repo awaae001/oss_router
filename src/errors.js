@@ -18,3 +18,12 @@ export class UpstreamFetchError extends Error {
   }
 }
 
+/**
+ * Error raised when an object path could escape its configured URL prefix.
+ */
+export class InvalidObjectPathError extends Error {
+  constructor(message, options) {
+    super(message, options);
+    this.name = "InvalidObjectPathError";
+  }
+}

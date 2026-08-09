@@ -16,10 +16,11 @@ const BLOCKED_XML_ROOTS = new Set([
 ]);
 
 /**
- * Returns a replayable response when outbound XML is safe, or null when it
- * contains storage control data or cannot be classified safely.
+ * Returns an outbound XML response when its root is safe or it is a valid byte
+ * range response. Set `allowRanges` to false to reject partial XML strictly.
+ * Returns null after cancelling the body when the response is not allowed.
  */
-export async function inspectOutboundXml(response) {
+export async function inspectOutboundXml(response, { allowRanges = true } = {}) {
   if (!response || !isXmlContentType(response.headers.get("content-type"))) {
     return response;
   }
@@ -27,8 +28,10 @@ export async function inspectOutboundXml(response) {
     return response;
   }
 
-  // A partial XML response may start after the root element and cannot be
-  // classified without access to the complete cached representation.
+  if (response.status === 206 && allowRanges && isValidByteRange(response.headers)) {
+    return response;
+  }
+
   if (response.status !== 200) {
     await response.body.cancel();
     return null;
@@ -99,6 +102,24 @@ function isXmlContentType(contentType) {
   return mimeType === "application/xml"
     || mimeType === "text/xml"
     || mimeType.endsWith("+xml");
+}
+
+function isValidByteRange(headers) {
+  const match = String(headers.get("content-range") || "")
+    .match(/^bytes (\d+)-(\d+)\/(\d+)$/i);
+
+  if (!match) return false;
+
+  const start = BigInt(match[1]);
+  const end = BigInt(match[2]);
+  const size = BigInt(match[3]);
+  if (start > end || end >= size) return false;
+
+  const contentLength = headers.get("content-length");
+  if (contentLength === null) return true;
+  if (!/^\d+$/.test(contentLength)) return false;
+
+  return BigInt(contentLength) === end - start + 1n;
 }
 
 function findXmlRootName(source) {

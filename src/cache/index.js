@@ -9,10 +9,12 @@ import {
 import { json, pickHeaders, rebuildResponse } from "../utils.js";
 
 const DEFAULT_CACHE_TTL = 604800;
-const DEFAULT_CACHE_POLICY = { cacheable: false, ttl: DEFAULT_CACHE_TTL };
+const DEFAULT_CACHE_POLICY = { cacheable: false, ttl: 0 };
 const CACHE_POLICY_BY_STATUS = new Map([
   [200, { cacheable: true, ttl: DEFAULT_CACHE_TTL }],
   [400, { cacheable: true, ttl: 1800 }],
+  [401, { cacheable: true, ttl: 60 }],
+  [403, { cacheable: true, ttl: 60 }],
   [404, { cacheable: true, ttl: 1800 }],
 ]);
 const REFRESH_HEADER = "x-cache-refresh-key";
@@ -79,7 +81,10 @@ export async function fetchWithCache(request, ctx, env, getStorageTarget) {
   const headers = new Headers(upstreamResponse.headers);
   const cachePolicy = getCachePolicy(upstreamResponse.status);
 
-  headers.set("cache-control", `public, max-age=${cachePolicy.ttl}`);
+  headers.set(
+    "cache-control",
+    cachePolicy.cacheable ? `public, max-age=${cachePolicy.ttl}` : "no-store",
+  );
 
   const response = withErrorPage(rebuildResponse(upstreamResponse, { headers }), request, env);
   if (requestMethod === "GET" && cachePolicy.cacheable) {

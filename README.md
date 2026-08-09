@@ -12,7 +12,7 @@ It supports Aliyun OSS native signing and a read-only S3-compatible provider usi
 - Keep object storage buckets private; no public read access required
 - Provider type must be configured via `OSS_PROVIDER` (`aliyun` or `s3`)
 - Cache `200` responses in `caches.default`
-- Cache `400` and `404` responses for 30 minutes
+- Cache `400`/`404` responses for 30 minutes and `401`/`403` responses for 60 seconds
 - Mask upstream OSS / S3 XML errors behind an Apache-style error page with randomized OS label and random IP address
 - 7-day Worker Cache TTL for successful responses by default
 - Optional sliding cache renewal, disabled by default
@@ -63,6 +63,7 @@ Other optional variables:
 | `FORCE_QUERY_NORMALIZATION` | Variable         | Enabled by default. Set to `false` to preserve non-internal query parameters in cache keys and upstream requests.                        |
 | `FORCE_INLINE`              | Variable         | Enabled by default. Set to `false` to disable and only apply inline disposition when `?inline` is in the URL.                            |
 | `APACHE_ERROR_PAGE`         | Variable         | Enabled by default. Set to `false` to disable the Apache-style error page and return the original upstream error response for debugging. |
+| `ALLOW_XML_RANGES`          | Variable         | Enabled by default. Set to `false` to reject partial XML/SVG responses instead of accepting valid `Content-Range` responses.             |
 | `SANITIZE_RESPONSE_HEADERS` | Variable         | Enabled by default. Set to `false` to pass upstream response headers through without whitelist filtering.                                |
 
 Access keys such as `OSS_ACCESS_KEY_ID`, `OSS_ACCESS_KEY_SECRET`, `OSS_SESSION_TOKEN`, and `CACHE_REFRESH_KEY` should be set as **Secrets** in the Cloudflare dashboard. If you also want to hide bucket information, you can set endpoint and bucket variables as Secrets too. The code reads them the same way.
@@ -86,7 +87,7 @@ Access an object through the Worker:
 http://localhost:8787/path/to/file.jpg
 ```
 
-The Worker signs the upstream storage request, fetches the private object, stores `200` responses for 7 days and `400`/`404` responses for 30 minutes in `caches.default`, and returns the result.
+The Worker signs the upstream storage request, fetches the private object, stores `200` responses for 7 days, `400`/`404` responses for 30 minutes, and `401`/`403` responses for 60 seconds in `caches.default`, and returns the result.
 
 When `APACHE_ERROR_PAGE=true`, the Worker does not pass the original OSS / S3 XML body through on error responses. Instead, it returns a unified Apache 2.4-style error page (with a randomized OS tag like Ubuntu, CentOS, or Arch and a random IP address) to reduce storage fingerprint leakage.
 
@@ -216,8 +217,10 @@ npm run deploy
 - Supports `GET` and `HEAD`
 - Caches `200` responses for 7 days: `public, max-age=604800`
 - Caches `400` and `404` responses for 30 minutes: `public, max-age=1800`
+- Caches `401` and `403` responses for 60 seconds: `public, max-age=60`
+- Does not cache other statuses, including transient `5xx` responses
 - `APACHE_ERROR_PAGE=true` by default, masking upstream error bodies behind a unified Apache-style error page with random OS and IP
-- XML responses are read as streams, and invalid outbound responses are blocked
+- Complete XML responses are inspected as streams; valid XML/SVG byte-range responses are passed through
 - Sliding renewal is disabled by default; set `CACHE_SLIDING_RENEWAL=true` to renew entries after half their TTL
 - `Range` and conditional requests are served from a complete cached object when possible; cache misses are proxied upstream
 - Query-parameter stripping is enabled by default; set `FORCE_QUERY_NORMALIZATION=false` to disable it

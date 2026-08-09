@@ -1,3 +1,4 @@
+import { InvalidObjectPathError } from "../errors.js";
 import { invalidConfig } from "../utils.js";
 
 /**
@@ -13,13 +14,31 @@ export function parseObjectBaseUrl(baseUrl) {
 
 /**
  * Appends an encoded object path and optional search string to a base URL.
+ * Throws InvalidObjectPathError when URL parsing could move the path outside
+ * the configured base prefix.
  */
 export function buildObjectUrl(url, objectPath, search = "") {
   const nextUrl = new URL(url.toString());
   const basePath = nextUrl.pathname.endsWith("/") ? nextUrl.pathname : `${nextUrl.pathname}/`;
+  const relativePath = String(objectPath || "").replace(/^\/+/, "");
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(relativePath);
+  } catch {
+    decodedPath = relativePath;
+  }
 
-  nextUrl.pathname = `${basePath}${String(objectPath || "").replace(/^\/+/, "")}`;
+  if (decodedPath.includes("\\")) {
+    throw new InvalidObjectPathError("Object path contains a backslash separator");
+  }
+  if (decodedPath.split("/").some((segment) => segment === "." || segment === "..")) {
+    throw new InvalidObjectPathError("Object path contains a dot segment");
+  }
+
+  nextUrl.pathname = `${basePath}${relativePath}`;
+  if (!nextUrl.pathname.startsWith(basePath)) {
+    throw new InvalidObjectPathError("Object path escapes the configured base URL");
+  }
   nextUrl.search = search ? (String(search).startsWith("?") ? String(search) : `?${search}`) : "";
   return nextUrl.toString();
 }
-

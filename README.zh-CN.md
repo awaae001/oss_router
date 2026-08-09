@@ -10,7 +10,7 @@
 - 对象存储 Bucket 可以保持私有，无需开启公共读
 - 通过 `OSS_PROVIDER` 必选配置指定 Provider 类型（`aliyun` / `s3`）
 - `200` 响应会写入 `caches.default`
-- `400` 和 `404` 响应会缓存 30 分钟
+- `400`/`404` 响应缓存 30 分钟，`401`/`403` 响应缓存 60 秒
 - 上游错误不透传 OSS / S3 XML，统一为 Apache 风格错误页（含随机 OS 标记和随机 IP 地址）
 - 成功响应默认 Worker Cache TTL 为 7 天
 - 可选滑动缓存续期，默认关闭
@@ -61,6 +61,7 @@ Provider 特定可选变量：
 | `FORCE_QUERY_NORMALIZATION` | Variable | 默认开启。设为 `false` 后，会保留非内部查询参数进入缓存键和上游请求。                                    |
 | `FORCE_INLINE`              | Variable | 默认开启。设为 `false` 可关闭，之后仅当 URL 携带 `?inline` 参数时才覆写为 inline。                       |
 | `APACHE_ERROR_PAGE`         | Variable | 默认开启。设为 `false` 后，关闭 Apache 风格错误页，直接返回原始错误响应，便于调试上游 XML / 文本错误体。 |
+| `ALLOW_XML_RANGES`          | Variable | 默认开启。设为 `false` 后，将拒绝部分 XML/SVG 响应，不再放行带有效 `Content-Range` 的响应。              |
 | `SANITIZE_RESPONSE_HEADERS` | Variable | 默认开启。设为 `false` 后，不再对白名单之外的上游响应头做过滤。                                          |
 
 其中 `OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_SESSION_TOKEN`、`CACHE_REFRESH_KEY` 建议在 Cloudflare 后台设置为 **Secret**。如果更希望隐藏 Bucket 信息，也可以把 Endpoint 和 Bucket 相关变量一并设置为 Secret。代码读取方式相同。
@@ -85,7 +86,7 @@ npm run dev
 http://localhost:8787/path/to/file.jpg
 ```
 
-Worker 会对上游对象存储请求进行签名，读取私有对象，将 `200` 响应缓存 7 天、`400`/`404` 响应缓存 30 分钟，然后把结果返回给客户端。
+Worker 会对上游对象存储请求进行签名，读取私有对象，将 `200` 响应缓存 7 天、`400`/`404` 响应缓存 30 分钟、`401`/`403` 响应缓存 60 秒，然后把结果返回给客户端。
 
 当 `APACHE_ERROR_PAGE=true` 时，上游返回错误时，Worker 不会直接透传 OSS / S3 原始 XML 错误体，而是改为返回统一的 Apache 2.4 风格错误页（带随机 OS 标记如 Ubuntu/CentOS/Arch 之一，以及随机 IP 地址），避免暴露存储类型、错误码细节和部分后端指纹信息。
 
@@ -215,8 +216,10 @@ npm run deploy
 - 支持 `GET` 和 `HEAD`
 - `200` 响应缓存 7 天：`public, max-age=604800`
 - `400` 和 `404` 响应缓存 30 分钟：`public, max-age=1800`
+- `401` 和 `403` 响应缓存 60 秒：`public, max-age=60`
+- 其他状态不缓存，包括临时性的 `5xx` 响应
 - 默认启用 `APACHE_ERROR_PAGE=true`，上游错误不透传原始 XML 错误体，而是统一返回 Apache 风格错误页（含随机 OS 和随机 IP）
-- XML 响应将通过流读取，不合法出站就会被拦截
+- 完整 XML 响应会通过流检查；有效的 XML/SVG 字节范围响应可直接透传
 - 滑动续期默认关闭；设 `CACHE_SLIDING_RENEWAL=true` 后，条目经过一半 TTL 才允许续期
 - `Range` 和条件请求会优先使用完整缓存对象；未命中时才回源
 - 默认启用查询参数强制归一化；设 `FORCE_QUERY_NORMALIZATION=false` 可关闭
